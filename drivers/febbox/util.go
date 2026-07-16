@@ -120,25 +120,32 @@ func (d *FebBox) getFiles(dirID string, page, pageLimit int64) (*[]File, error) 
 }
 
 func (d *FebBox) getDownloadLink(id string, ip string) (string, error) {
+	fidsJSON := fmt.Sprintf(`["%s"]`, id)
 	var fileDownloadResp FileDownloadResp
-	queryParams := map[string]string{
-		"module": "file_get_download_url",
-		"fids[]": id,
-		"ip":     ip,
-	}
 
-	res, err := d.request("https://api.febbox.com/oauth", http.MethodPost, func(req *resty.Request) {
-		req.SetMultipartFormData(queryParams)
-	}, &fileDownloadResp)
+	resp, err := base.RestyClient.R().
+		SetQueryParam("fids", fidsJSON).
+		SetQueryParam("share", "").
+		SetHeader("Cookie", fmt.Sprintf("ui=%s", d.Addition.CookieUI)).
+		SetHeader("Referer", "https://www.febbox.com/console").
+		SetHeader("X-Requested-With", "XMLHttpRequest").
+		SetResult(&fileDownloadResp).
+		Get("https://www.febbox.com/console/file_download")
 	if err != nil {
 		return "", err
 	}
 
-	if err = json.Unmarshal(res, &fileDownloadResp); err != nil {
-		return "", err
+	if resp.StatusCode() != http.StatusOK {
+		return "", fmt.Errorf("get download link failed, status: %d", resp.StatusCode())
+	}
+	if fileDownloadResp.Code != 1 {
+		return "", fmt.Errorf("can not get download link, code:%d, msg:%s", fileDownloadResp.Code, fileDownloadResp.Msg)
 	}
 	if len(fileDownloadResp.Data) == 0 {
-		return "", fmt.Errorf("can not get download link, code:%d, msg:%s", fileDownloadResp.Code, fileDownloadResp.Msg)
+		return "", fmt.Errorf("can not get download link, empty data")
+	}
+	if fileDownloadResp.Data[0].DownloadURL == "" {
+		return "", fmt.Errorf("download url is empty, file error:%d", fileDownloadResp.Data[0].Error)
 	}
 
 	return fileDownloadResp.Data[0].DownloadURL, nil
